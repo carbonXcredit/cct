@@ -15,7 +15,7 @@ import "./Vote.sol";
  
 
 
-contract CarbonCreditToken is Context, ERC20, Ownable, ERC20Mintable, ERC20Burnable, ERC20Pausable, ERC20Detailed,  Vote  {
+contract CarbonCreditToken is Context, ERC20, Ownable, ERC20Mintable, ERC20Burnable, ERC20Pausable, ERC20Detailed  {
 
   using SafeMath for uint256;
 
@@ -26,6 +26,7 @@ contract CarbonCreditToken is Context, ERC20, Ownable, ERC20Mintable, ERC20Burna
     mapping(address => bool) tokenBlacklist;
     mapping (address => uint256) private _balances;
     mapping (address => uint256) private _carbonCreditBeta;
+    mapping (address => uint256) private _airDrop;
 
     uint8 private _decimals = 18;
     string private _symbol = "CCT";
@@ -33,8 +34,8 @@ contract CarbonCreditToken is Context, ERC20, Ownable, ERC20Mintable, ERC20Burna
     uint256 private _tokenDonated = 0;
     address private _donationWallet;
     uint256 private _totalTokenDonated = 0;
-    address private _ownerAddress = 0x22435B3c8fB160122D04E17C3865B4EeB896bF55;
     uint256 private _rate = 500000;
+    bool private _airDropCanConvert = false;
     
    
    
@@ -43,10 +44,11 @@ contract CarbonCreditToken is Context, ERC20, Ownable, ERC20Mintable, ERC20Burna
  
   event Blacklist(address indexed blackListed, bool value);
   event UpdateCarbonCreditBeta( address indexed account, uint256 value);
+  event UpdateAirDrop(address indexed account, uint256 value);
  
   constructor()
     ERC20Detailed(_name, _symbol, _decimals)
-    Vote(_donationWallet)
+    //Vote(_donationWallet)
 
  public {
       
@@ -71,10 +73,112 @@ contract CarbonCreditToken is Context, ERC20, Ownable, ERC20Mintable, ERC20Burna
 
   function _creditCarbonCreditBeta (address account, uint256 amount) internal returns (bool){
 
-    _carbonCreditBeta[account] = _carbonCreditBeta[account] + amount;
-    emit UpdateCarbonCreditBeta(account, amount);
+   uint256 balance = _carbonCreditBeta[account] + amount;
+    _carbonCreditBeta[account] = balance;
+    emit UpdateCarbonCreditBeta(account, balance);
     return true;
     
+
+  }
+
+  function airDropBalanceOf(address account ) public view returns (uint256){
+
+    return _airDrop[account];
+
+  }
+
+function claimAirDrop (uint256 amount) public returns (bool){
+
+      uint256 balance = _airDrop[msg.sender] + amount;
+      _airDrop[msg.sender] = balance;
+      emit UpdateAirDrop(msg.sender, balance);
+      return true;
+
+}
+
+
+function canConvertAirDropStatus() public view returns (bool){
+  return _airDropCanConvert;
+}
+
+
+function updateCanConvertAirDrop (bool value) external onlyOwner returns (bool) {
+
+
+    _airDropCanConvert = value;
+    return value;
+
+
+}
+
+
+function convertAirDrop () public returns (bool){
+
+  uint256 airDropBalance = airDropBalanceOf(msg.sender);
+
+  if(! _airDropCanConvert){
+      return false;
+  }
+
+  if( airDropBalance < 1){
+
+    return false;
+
+  }
+
+  //burn the airDrop
+
+  bool isBurned = _burnAirDrop(msg.sender, airDropBalance);
+  if(isBurned){
+      //now credit user carbon x
+      _transfer( owner(), msg.sender, airDropBalance);
+      increaseAllowance( owner() , airDropBalance);
+
+      return true;
+
+  }else{
+
+    return isBurned;
+  }
+
+  
+
+}
+
+function _burnAirDrop( address account , uint256 amount ) internal returns (bool){
+
+   uint256 airDropBalance = airDropBalanceOf(account);
+
+      if(amount > 0){
+
+        airDropBalance = airDropBalance - amount;
+        _airDrop[account] = airDropBalance;
+        emit UpdateAirDrop(account, airDropBalance);
+
+         return true;
+      }else {
+           return false;
+      }
+
+     
+}
+
+
+  function burnCarbonCreditBeta ( address account, uint256 amount ) public returns (bool) {
+
+ 
+      uint256 balance = _carbonCreditBeta[account];
+
+      if(balance > 0){
+
+        balance = balance - amount;
+         _carbonCreditBeta[account] = balance;
+        emit UpdateCarbonCreditBeta(account, balance);
+
+      }
+
+     
+      return true;
 
   }
    
@@ -101,9 +205,9 @@ contract CarbonCreditToken is Context, ERC20, Ownable, ERC20Mintable, ERC20Burna
 
         //convert the money to cct
         uint256 amount = msg.value * _rate;
-            _transfer(_ownerAddress, msg.sender, amount);
+            _transfer( owner(), msg.sender, amount);
       
-            increaseAllowance(_ownerAddress, amount);
+            increaseAllowance( owner() , amount);
             
             return true;
     }
@@ -119,19 +223,20 @@ contract CarbonCreditToken is Context, ERC20, Ownable, ERC20Mintable, ERC20Burna
      
     if(msg.value  == 0){
 
-      return false;
+        return false;
 
     }else{
 
         //convert the money to cct
-        uint256 amount = (msg.value * _rate) / 2;
-            _transfer(_ownerAddress, msg.sender, amount);
+          uint256 total = (msg.value * _rate);
+          uint256 betaAmount = total / 2;
+       
+            _transfer( owner(), msg.sender, total);
       
-            increaseAllowance(_ownerAddress, amount);
-            
+            increaseAllowance( owner() , total);
             //now credit the user carbon beta
 
-            _creditCarbonCreditBeta(msg.sender, amount);
+            _creditCarbonCreditBeta(msg.sender, betaAmount);
             return true;
 
     }
@@ -168,6 +273,8 @@ contract CarbonCreditToken is Context, ERC20, Ownable, ERC20Mintable, ERC20Burna
       
       require(tokenBlacklist[msg.sender] == false, 'Sorry, can not transfer from this account, the account has been blacklisted');
      
+     require(msg.sender == sender, 'Sorry, invalid trasfer');
+
      _transfer(sender, recipient, amount);
       
       increaseAllowance(recipient, amount);
@@ -194,39 +301,6 @@ contract CarbonCreditToken is Context, ERC20, Ownable, ERC20Mintable, ERC20Burna
         
     }
     
-    function donate(address account, uint256 amount) external returns (bool) {
-        
-        //_burn(account, amount);
-        //you give to the community
-        //therefore you transfer the money to the community
-         transferFrom( account,  _donationWallet,  amount);
-         //save all the amount donated 
-         _tokenDonated = _tokenDonated + amount;
-         _totalTokenDonated = _totalTokenDonated + amount;
-         return true;
-         
-        
-    }
-    
-    
-    function getTokenDonated () external onlyOwner view returns (uint256){
-        
-        return _tokenDonated;
-        
-    }
-    
-    function getTotalTokenDonated () external  view returns (uint256){
-        return _totalTokenDonated;
-    }
-    
-    
-    function withdrawTokenDonated (uint256 amount) external onlyOwner returns (bool){
-        
-        _tokenDonated = _tokenDonated - amount;
-        return true;
-        
-        
-    }
 
   
     function updateRate (uint256 amount) external onlyOwner returns (bool){
